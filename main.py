@@ -4,18 +4,16 @@ Kenya Digital Farm Twin - WOFOST Crop Simulation Application
 A PyQt5 application for running WOFOST 8.1 crop simulations with nitrogen and water limitation.
 """
 
-import json
-import os
 import sys
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 # Matplotlib for embedded graphs
 import matplotlib
 import numpy as np
 import pandas as pd
-from PyQt5.QtCore import QDate, QSize, Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QIcon, QPalette
+from PyQt5.QtCore import QDate, Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QPalette
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -25,28 +23,20 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QMainWindow,
-    QMenu,
-    QMenuBar,
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
-    QSpinBox,
-    QSplitter,
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -292,7 +282,6 @@ class SimulationWorker(QThread):
         try:
             # Import PCSE modules
             self.progress.emit(5, "Importing PCSE modules...")
-            import pcse
             from pcse.base import ParameterProvider
             from pcse.input import NASAPowerWeatherDataProvider, YAMLCropDataProvider
             from pcse.models import Wofost81_NWLP_CWB_CNB
@@ -442,19 +431,50 @@ class SimulationWorker(QThread):
                                 else s.get("TAGP", 0) * 0.4
                             )
 
-                        results.append(
-                            {
-                                "df": df,
-                                "summary": s,
-                                "yield_kg": main_yield,
-                                "yield_t": main_yield / 1000,
-                                "scenario": scenario["name"],
-                                "scenario_key": key,
-                                "n_rate": scenario["total_n"],
-                                "tagp": s.get("TAGP", 0),
-                                "laimax": s.get("LAIMAX", 0),
-                            }
-                        )
+                            # Calculate GDD from weather data
+                            gdd_list = []
+                            daily_gdd_list = []
+                            tbase = 0.0  # Base temperature
+                            cumulative_gdd = 0.0
+                            for d in df['day']:
+                                try:
+                                    # Convert to date object for weather provider
+                                    if hasattr(d, 'date'):
+                                        d_date = d.date()
+                                    elif hasattr(d, 'timetuple'):
+                                        d_date = d
+                                    else:
+                                        d_date = pd.Timestamp(d).date()
+
+                                    wdata = weather(d_date)
+                                    tmax = wdata.TMAX
+                                    tmin = wdata.TMIN
+                                    daily_gdd = max(0.0, (tmax + tmin) / 2.0 - tbase)
+                                    print(tmin, tmax, daily_gdd)
+                                except Exception as e:
+                                    print(e)
+                                    daily_gdd = 0.0
+
+                                cumulative_gdd += daily_gdd
+                                daily_gdd_list.append(daily_gdd)
+                                gdd_list.append(cumulative_gdd)
+
+                            df['GDD'] = gdd_list
+                            df['daily_GDD'] = daily_gdd_list
+                            # print(gdd_list)
+
+                            results.append({
+                                'df': df,
+                                'summary': s,
+                                'yield_kg': main_yield,
+                                'yield_t': main_yield / 1000,
+                                'scenario': scenario['name'],
+                                'scenario_key': key,
+                                'n_rate': scenario['total_n'],
+                                'tagp': s.get('TAGP', 0),
+                                'laimax': s.get('LAIMAX', 0),
+                            })
+
                         dataframes[scenario["name"]] = df
 
                 except Exception as e:
@@ -875,6 +895,9 @@ class ResultsPanel(QWidget):
         self.graph5 = GraphWidget("Figure 5: Yield Gap Comparison")
         self.tabs.addTab(self.graph5, "Yield Gap")
 
+        self.graph6 = GraphWidget("Figure 6: Growing Degree Days & Phenophases")
+        self.tabs.addTab(self.graph6, "GDD")
+
         layout.addWidget(self.tabs)
 
         # Results summary table
@@ -902,6 +925,7 @@ class ResultsPanel(QWidget):
             self.plot_crop_growth()
             self.plot_multiyear_analysis()
             self.plot_yield_gap()
+            self.plot_gdd()
             self.update_summary_table()
 
     def plot_nitrogen_response(self):
@@ -1400,6 +1424,174 @@ class ResultsPanel(QWidget):
 
         self.graph5.canvas.fig.tight_layout()
         self.graph5.canvas.draw()
+
+
+    def plot_gdd(self):
+            """Figure 6: Growing Degree Days with phenophases."""
+            self.graph6.canvas.fig.clear()
+
+            if not self.dataframes:
+                return
+
+            # Get one scenario for GDD display
+            scenario_name = list(self.dataframes.keys())[-1]
+            df = self.dataframes[scenario_name]
+
+            ax = self.graph6.canvas.fig.add_subplot(111)
+
+            # Phenophase definitions (fraction of total GDD)
+            PHENOPHASES = {
+                'barley': {'name': 'Barley', 'total_gdd': 1550, 'phases': [
+                    ('Germination', 0, 0.07, '#8B4513'),
+                    ('Tillering', 0.07, 0.25, '#228B22'),
+                    ('Stem Extension', 0.25, 0.45, '#32CD32'),
+                    ('Heading', 0.45, 0.55, '#FFD700'),
+                    ('Flowering', 0.55, 0.65, '#FF8C00'),
+                    ('Grain Fill', 0.65, 0.90, '#DAA520'),
+                    ('Maturity', 0.90, 1.0, '#8B0000'),
+                ]},
+                'wheat': {'name': 'Wheat', 'total_gdd': 1800, 'phases': [
+                    ('Germination', 0, 0.06, '#8B4513'),
+                    ('Tillering', 0.06, 0.22, '#228B22'),
+                    ('Stem Extension', 0.22, 0.42, '#32CD32'),
+                    ('Heading', 0.42, 0.52, '#FFD700'),
+                    ('Flowering', 0.52, 0.62, '#FF8C00'),
+                    ('Grain Fill', 0.62, 0.88, '#DAA520'),
+                    ('Maturity', 0.88, 1.0, '#8B0000'),
+                ]},
+                'rice': {'name': 'Rice', 'total_gdd': 2100, 'phases': [
+                    ('Germination', 0, 0.05, '#8B4513'),
+                    ('Seedling', 0.05, 0.15, '#90EE90'),
+                    ('Tillering', 0.15, 0.35, '#228B22'),
+                    ('Stem Extension', 0.35, 0.50, '#32CD32'),
+                    ('Heading', 0.50, 0.60, '#FFD700'),
+                    ('Flowering', 0.60, 0.70, '#FF8C00'),
+                    ('Grain Fill', 0.70, 0.92, '#DAA520'),
+                    ('Maturity', 0.92, 1.0, '#8B0000'),
+                ]},
+                'potato': {'name': 'Potato', 'total_gdd': 1500, 'phases': [
+                    ('Sprouting', 0, 0.10, '#8B4513'),
+                    ('Vegetative', 0.10, 0.35, '#228B22'),
+                    ('Tuber Init.', 0.35, 0.50, '#32CD32'),
+                    ('Tuber Bulk', 0.50, 0.85, '#DAA520'),
+                    ('Maturity', 0.85, 1.0, '#8B0000'),
+                ]},
+                'soybean': {'name': 'Soybean', 'total_gdd': 1400, 'phases': [
+                    ('Germination', 0, 0.08, '#8B4513'),
+                    ('Vegetative', 0.08, 0.40, '#228B22'),
+                    ('Flowering', 0.40, 0.55, '#FF8C00'),
+                    ('Pod Dev.', 0.55, 0.75, '#FFD700'),
+                    ('Seed Fill', 0.75, 0.92, '#DAA520'),
+                    ('Maturity', 0.92, 1.0, '#8B0000'),
+                ]},
+                'cowpea': {'name': 'Cowpea', 'total_gdd': 1100, 'phases': [
+                    ('Germination', 0, 0.08, '#8B4513'),
+                    ('Vegetative', 0.08, 0.45, '#228B22'),
+                    ('Flowering', 0.45, 0.60, '#FF8C00'),
+                    ('Pod Fill', 0.60, 0.90, '#DAA520'),
+                    ('Maturity', 0.90, 1.0, '#8B0000'),
+                ]},
+                'groundnut': {'name': 'Groundnut', 'total_gdd': 1500, 'phases': [
+                    ('Germination', 0, 0.07, '#8B4513'),
+                    ('Vegetative', 0.07, 0.35, '#228B22'),
+                    ('Flowering', 0.35, 0.50, '#FF8C00'),
+                    ('Pegging', 0.50, 0.65, '#FFD700'),
+                    ('Pod Fill', 0.65, 0.90, '#DAA520'),
+                    ('Maturity', 0.90, 1.0, '#8B0000'),
+                ]},
+                'cassava': {'name': 'Cassava', 'total_gdd': 4500, 'phases': [
+                    ('Sprouting', 0, 0.05, '#8B4513'),
+                    ('Leaf Dev.', 0.05, 0.20, '#90EE90'),
+                    ('Vegetative', 0.20, 0.50, '#228B22'),
+                    ('Root Bulk', 0.50, 0.90, '#DAA520'),
+                    ('Maturity', 0.90, 1.0, '#8B0000'),
+                ]},
+                'sweetpotato': {'name': 'Sweet Potato', 'total_gdd': 2200, 'phases': [
+                    ('Establishment', 0, 0.10, '#8B4513'),
+                    ('Vine Dev.', 0.10, 0.35, '#228B22'),
+                    ('Root Init.', 0.35, 0.50, '#32CD32'),
+                    ('Root Bulk', 0.50, 0.90, '#DAA520'),
+                    ('Maturity', 0.90, 1.0, '#8B0000'),
+                ]},
+            }
+
+            # Get crop phenophases or use default
+            crop_info = PHENOPHASES.get(self.crop_name, PHENOPHASES['barley'])
+            total_gdd = crop_info['total_gdd']
+            phases = crop_info['phases']
+
+            # Use calculated GDD from weather data
+            if 'GDD' in df.columns:
+                gdd = df['GDD']
+                total_gdd = gdd.iloc[-1]  # Use actual accumulated GDD
+            else:
+                # Fallback: estimate from DVS
+                if 'DVS' in df.columns:
+                    gdd = df['DVS'] / 2.0 * total_gdd
+                else:
+                    gdd = np.linspace(0, total_gdd, len(df))
+
+            # Plot GDD accumulation
+            ax.plot(df['day'], gdd, 'b-', linewidth=2.5, label='Accumulated GDD')
+            ax.fill_between(df['day'], 0, gdd, alpha=0.1, color='blue')
+
+            # Add phenophase bands
+            y_max = total_gdd * 1.1
+            for phase_name, start_frac, end_frac, color in phases:
+                start_gdd = start_frac * total_gdd
+                end_gdd = end_frac * total_gdd
+
+                # Find corresponding days
+                mask = (gdd >= start_gdd) & (gdd <= end_gdd)
+                if mask.any():
+                    ax.axhspan(start_gdd, end_gdd, alpha=0.25, color=color, label=phase_name)
+
+                    # Add phase label
+                    mid_gdd = (start_gdd + end_gdd) / 2
+                    ax.text(df['day'].iloc[0] + pd.Timedelta(days=5), mid_gdd,
+                           phase_name, fontsize=8, fontweight='bold', va='center',
+                           bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
+
+            # Add DVS markers
+            if 'DVS' in df.columns:
+                # Flowering (DVS = 1.0)
+                flowering_idx = (df['DVS'] - 1.0).abs().idxmin()
+                if flowering_idx is not None:
+                    ax.axvline(x=df.loc[flowering_idx, 'day'], color='orange',
+                              linestyle='--', linewidth=2, alpha=0.8)
+                    ax.annotate('Flowering\n(DVS=1.0)',
+                               xy=(df.loc[flowering_idx, 'day'], gdd.iloc[flowering_idx]),
+                               xytext=(10, 20), textcoords='offset points',
+                               fontsize=9, fontweight='bold',
+                               arrowprops=dict(arrowstyle='->', color='orange'))
+
+                # Maturity (DVS = 2.0)
+                if df['DVS'].max() >= 1.95:
+                    maturity_idx = (df['DVS'] - 2.0).abs().idxmin()
+                    ax.axvline(x=df.loc[maturity_idx, 'day'], color='red',
+                              linestyle='--', linewidth=2, alpha=0.8)
+                    ax.annotate('Maturity\n(DVS=2.0)',
+                               xy=(df.loc[maturity_idx, 'day'], gdd.iloc[maturity_idx]),
+                               xytext=(10, -30), textcoords='offset points',
+                               fontsize=9, fontweight='bold',
+                               arrowprops=dict(arrowstyle='->', color='red'))
+
+            ax.set_xlabel('Date', fontweight='bold')
+            ax.set_ylabel('Growing Degree Days (°C·day)', fontweight='bold')
+            ax.set_title(f'{crop_info["name"]} - Growing Degree Days & Phenophases\n(Base temp: 0°C, Total: {total_gdd} GDD)',
+                        fontweight='bold', fontsize=11)
+            ax.set_ylim(0, y_max)
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+            ax.xaxis.set_major_locator(mdates.MonthLocator())
+            ax.grid(True, alpha=0.3)
+
+            # Add GDD info box
+            info_text = f'Total GDD: {total_gdd}°C·d\nPhases: {len(phases)}'
+            ax.text(0.98, 0.02, info_text, transform=ax.transAxes, ha='right', va='bottom',
+                   fontsize=9, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+            self.graph6.canvas.fig.tight_layout()
+            self.graph6.canvas.draw()
 
     def update_summary_table(self):
         """Update the results summary table."""
