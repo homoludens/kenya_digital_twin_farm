@@ -271,7 +271,7 @@ class SimulationWorker(QThread):
     """Worker thread for running WOFOST simulations."""
 
     progress = pyqtSignal(int, str)
-    finished = pyqtSignal(list, dict)
+    finished = pyqtSignal(list, dict, object, int, str)
     error = pyqtSignal(str)
 
     def __init__(self, config: Dict):
@@ -300,6 +300,26 @@ class SimulationWorker(QThread):
             weather = NASAPowerWeatherDataProvider(
                 latitude=location["lat"], longitude=location["lon"]
             )
+
+            # Store weather data for plotting
+            year = start_date.year
+            weather_data = []
+            for d in pd.date_range(date(year, 1, 1), date(year, 12, 31)):
+                try:
+                    w = weather(d.date())
+                    weather_data.append({
+                        'date': d,
+                        'tmax': w.TMAX,
+                        'tmin': w.TMIN,
+                        'rain': w.RAIN,
+                        'radiation': w.IRRAD / 1000000,  # Convert J/m2 to MJ/m2
+                    })
+                except Exception as e:
+                    print(e)
+                    pass
+            self.weather_df = pd.DataFrame(weather_data).set_index('date')
+            self.weather_year = year
+            self.location_name = location['name']
 
             results = []
             dataframes = {}
@@ -450,7 +470,6 @@ class SimulationWorker(QThread):
                                     tmax = wdata.TMAX
                                     tmin = wdata.TMIN
                                     daily_gdd = max(0.0, (tmax + tmin) / 2.0 - tbase)
-                                    print(tmin, tmax, daily_gdd)
                                 except Exception as e:
                                     print(e)
                                     daily_gdd = 0.0
@@ -461,7 +480,6 @@ class SimulationWorker(QThread):
 
                             df['GDD'] = gdd_list
                             df['daily_GDD'] = daily_gdd_list
-                            # print(gdd_list)
 
                             results.append({
                                 'df': df,
@@ -484,7 +502,7 @@ class SimulationWorker(QThread):
 
             self.progress.emit(95, "Finalizing results...")
             self.progress.emit(100, "Done!")
-            self.finished.emit(results, dataframes)
+            self.finished.emit(results, dataframes, self.weather_df, self.weather_year, self.location_name)
 
         except Exception as e:
             import traceback
@@ -898,6 +916,9 @@ class ResultsPanel(QWidget):
         self.graph6 = GraphWidget("Figure 6: Growing Degree Days & Phenophases")
         self.tabs.addTab(self.graph6, "GDD")
 
+        self.graph7 = GraphWidget("Figure 7: Weather Patterns")
+        self.tabs.addTab(self.graph7, "Weather")
+
         layout.addWidget(self.tabs)
 
         # Results summary table
@@ -905,28 +926,26 @@ class ResultsPanel(QWidget):
         self.summary_table.setMaximumHeight(150)
         layout.addWidget(self.summary_table)
 
-    def update_results(
-        self,
-        results: List,
-        dataframes: Dict,
-        yield_gap_factor: float = 0.35,
-        crop_name: str = "barley",
-        location_name: str = "Trans Nzoia",
-    ):
-        self.results = results
-        self.dataframes = dataframes
-        self.yield_gap_factor = yield_gap_factor
-        self.crop_name = crop_name
-        self.location_name = location_name
+    def update_results(self, results: List, dataframes: Dict, yield_gap_factor: float = 0.35,
+                        crop_name: str = 'barley', location_name: str = 'Trans Nzoia',
+                        weather_df=None, weather_year=None):
+            self.results = results
+            self.dataframes = dataframes
+            self.yield_gap_factor = yield_gap_factor
+            self.crop_name = crop_name
+            self.location_name = location_name
+            self.weather_df = weather_df
+            self.weather_year = weather_year
 
-        if results:
-            self.plot_nitrogen_response()
-            self.plot_growth_dynamics()
-            self.plot_crop_growth()
-            self.plot_multiyear_analysis()
-            self.plot_yield_gap()
-            self.plot_gdd()
-            self.update_summary_table()
+            if results:
+                self.plot_nitrogen_response()
+                self.plot_growth_dynamics()
+                self.plot_crop_growth()
+                self.plot_multiyear_analysis()
+                self.plot_yield_gap()
+                self.plot_gdd()
+                self.plot_weather()
+                self.update_summary_table()
 
     def plot_nitrogen_response(self):
         """Figure 1: Nitrogen response curve."""
@@ -1593,6 +1612,79 @@ class ResultsPanel(QWidget):
             self.graph6.canvas.fig.tight_layout()
             self.graph6.canvas.draw()
 
+    def plot_weather(self):
+            """Figure 7: Weather patterns."""
+            self.graph7.canvas.fig.clear()
+
+            if self.weather_df is None or len(self.weather_df) == 0:
+                ax = self.graph7.canvas.fig.add_subplot(111)
+                ax.text(0.5, 0.5, 'Weather data not available', ha='center', va='center',
+                    transform=ax.transAxes, fontsize=12)
+                self.graph7.canvas.draw()
+                return
+
+            df_weather = self.weather_df
+            year = self.weather_year
+
+            axes = self.graph7.canvas.fig.subplots(3, 1, sharex=True)
+
+            # Temperature
+            axes[0].fill_between(df_weather.index, df_weather['tmin'], df_weather['tmax'],
+                                alpha=0.3, color='#E74C3C', label='Daily range')
+            axes[0].plot(df_weather.index, df_weather['tmax'], color='#E74C3C', linewidth=0.8, label='Max')
+            axes[0].plot(df_weather.index, df_weather['tmin'], color='#3498DB', linewidth=0.8, label='Min')
+            axes[0].set_ylabel('Temperature (°C)', fontweight='bold')
+            axes[0].legend(loc='upper right', framealpha=0.9, fontsize=8)
+            axes[0].set_ylim(5, 35)
+            axes[0].grid(True, alpha=0.3)
+
+            # Rainfall with season markers
+            axes[1].bar(df_weather.index, df_weather['rain'], width=1, color='#3498DB', alpha=0.7)
+            axes[1].axvspan(f'{year}-03-01', f'{year}-05-31', alpha=0.15, color='green', label='Long Rains (Masika)')
+            axes[1].axvspan(f'{year}-10-01', f'{year}-12-15', alpha=0.15, color='orange', label='Short Rains (Vuli)')
+            axes[1].set_ylabel('Rainfall (mm/day)', fontweight='bold')
+            axes[1].legend(loc='upper right', framealpha=0.9, fontsize=8)
+            axes[1].set_ylim(0, 60)
+            axes[1].grid(True, alpha=0.3)
+
+            # Add annotations for total rainfall
+            try:
+                long_rain = df_weather.loc[f'{year}-03-01':f'{year}-05-31', 'rain'].sum()
+                short_rain = df_weather.loc[f'{year}-10-01':f'{year}-12-15', 'rain'].sum()
+                axes[1].annotate(f'{long_rain:.0f}mm', xy=(pd.Timestamp(f'{year}-04-15'), 55),
+                                fontsize=9, ha='center', color='darkgreen', fontweight='bold')
+                axes[1].annotate(f'{short_rain:.0f}mm', xy=(pd.Timestamp(f'{year}-11-07'), 55),
+                                fontsize=9, ha='center', color='darkorange', fontweight='bold')
+            except:
+                pass
+
+            # Radiation
+            axes[2].plot(df_weather.index, df_weather['radiation'], color='#F39C12', linewidth=0.8)
+            axes[2].fill_between(df_weather.index, 0, df_weather['radiation'], alpha=0.3, color='#F39C12')
+            axes[2].set_ylabel('Solar Radiation\n(MJ/m²/day)', fontweight='bold')
+            axes[2].set_xlabel('Date', fontweight='bold')
+            axes[2].set_ylim(0, 30)
+            axes[2].grid(True, alpha=0.3)
+
+            # Format x-axis
+            axes[2].xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+            axes[2].xaxis.set_major_locator(mdates.MonthLocator())
+
+            self.graph7.canvas.fig.suptitle(f'Weather Data: {self.location_name} ({year})',
+                                            fontsize=12, fontweight='bold')
+
+            # Add summary text
+            try:
+                summary_text = f'Annual: {df_weather["rain"].sum():.0f}mm rain | '
+                summary_text += f'Temp: {df_weather["tmin"].mean():.1f}-{df_weather["tmax"].mean():.1f}°C'
+                self.graph7.canvas.fig.text(0.5, 0.01, summary_text, ha='center', fontsize=9,
+                                            style='italic', color='gray')
+            except:
+                pass
+
+            self.graph7.canvas.fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+            self.graph7.canvas.draw()
+
     def update_summary_table(self):
         """Update the results summary table."""
         if not self.results:
@@ -1946,7 +2038,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(value)
         self.statusbar.showMessage(message)
 
-    def on_simulation_finished(self, results: List, dataframes: Dict):
+    def on_simulation_finished(self, results: List, dataframes: Dict, weather_df=None, weather_year=None, weather_location=None):
         """Handle simulation completion."""
         self.run_btn.setEnabled(True)
         self.progress_bar.setVisible(False)
@@ -1957,8 +2049,10 @@ class MainWindow(QMainWindow):
             yield_gap = self.yield_gap_spin.value()
 
             self.results_panel.update_results(
-                results, dataframes, yield_gap, crop_name, location["name"]
-            )
+                            results, dataframes, yield_gap,
+                            crop_name, location['name'],
+                            weather_df, weather_year
+                        )
             self.statusbar.showMessage(f"Simulation complete: {len(results)} scenarios")
         else:
             QMessageBox.warning(self, "Warning", "No results returned from simulation.")
