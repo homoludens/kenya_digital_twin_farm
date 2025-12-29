@@ -80,38 +80,6 @@ CROP_OPTIONS = {
         "n_demand": "medium-high",
         "needs_vern_override": True,
     },
-    "rice": {
-        "variety": "Rice_IR72",
-        "kenya_relevance": "Mwea, Ahero irrigation schemes",
-        "planting_month": 3,
-        "planting_day": 15,
-        "season_days": 140,
-        "n_demand": "high",
-    },
-    "soybean": {
-        "variety": "Soybean_901",
-        "kenya_relevance": "Western Kenya, rotation crop",
-        "planting_month": 3,
-        "planting_day": 15,
-        "season_days": 120,
-        "n_demand": "low",
-    },
-    "cowpea": {
-        "variety": "Cowpea_VanHeemst_1988",
-        "kenya_relevance": "Semi-arid Eastern Kenya, drought tolerant",
-        "planting_month": 10,
-        "planting_day": 15,
-        "season_days": 90,
-        "n_demand": "low",
-    },
-    "groundnut": {
-        "variety": "Groundnut_VanHeemst_1988",
-        "kenya_relevance": "Western Kenya, cash crop",
-        "planting_month": 3,
-        "planting_day": 15,
-        "season_days": 120,
-        "n_demand": "low",
-    },
     "potato": {
         "variety": "Potato_701",
         "kenya_relevance": "Central highlands (Nyandarua, Meru)",
@@ -1055,10 +1023,9 @@ class ResultsPanel(QWidget):
                 )
 
             # Yield component
-            if "TWSO" in df.columns:
-                axes[1, 0].plot(
-                    df["day"], df["TWSO"] / 1000, color=c, linewidth=2, label=name
-                )
+            twso_col = next((col for col in ['TWSO', 'twso', 'WSO', 'TWSO_kg'] if col in df.columns), None)
+            if twso_col:
+                axes[1, 0].plot(df['day'], df[twso_col]/1000, color=c, linewidth=2, label=name)
 
             # DVS
             if "DVS" in df.columns:
