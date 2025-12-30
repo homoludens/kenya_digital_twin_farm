@@ -4,7 +4,7 @@ import pcse
 pcse_path = os.path.dirname(pcse.__file__)
 
 a = Analysis(
-    ['main.py'],
+    ['app/main.py'],
     pathex=[],
     binaries=[],
     datas=[

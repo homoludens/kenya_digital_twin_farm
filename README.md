@@ -133,12 +133,49 @@ Weather data is automatically fetched from NASA POWER database.
 
 ```
 kenya_farm_twin/
-├── app
-|      └──  main.py           # Main application
+app/
+    ├── __init__.py                      # Package metadata
+    ├── main.py                          # Entry point only (~45 lines)
+    ├── config/                          # Static configuration data
+    │   ├── __init__.py
+    │   ├── crops.py                     # CROP_OPTIONS, PHENOPHASES
+    │   ├── fertilizers.py               # DEFAULT_FERT_SCENARIOS
+    │   ├── locations.py                 # LOCATION_OPTIONS
+    │   └── soils.py                     # SOIL_TYPES, SOIL_PARAM_INFO
+    ├── simulation/                      # WOFOST simulation logic
+    │   ├── __init__.py
+    │   └── worker.py                    # SimulationWorker QThread
+    ├── widgets/                         # Reusable UI components
+    │   ├── __init__.py
+    │   ├── canvas.py                    # MplCanvas, GraphWidget
+    │   ├── location_map.py              # LocationMapWidget
+    │   └── results/                     # Results visualization
+    │       ├── __init__.py
+    │       ├── panel.py                 # ResultsPanel (orchestration)
+    │       ├── summary_table.py         # SummaryTableWidget
+    │       └── plots/                   # Individual plot modules
+    │           ├── __init__.py
+    │           ├── base.py              # PlotContext, utilities
+    │           ├── crop_growth.py
+    │           ├── gdd.py
+    │           ├── growth_dynamics.py
+    │           ├── multiyear.py
+    │           ├── nitrogen_response.py
+    │           ├── weather.py
+    │           └── yield_gap.py
+    ├── dialogs/                         # Modal dialogs
+    │   ├── __init__.py
+    │   ├── fertilizer_settings.py
+    │   └── soil_settings.py
+    └── windows/                         # Main application windows
+        ├── __init__.py
+        └── main_window.py               # MainWindow class
 ├── requirements.txt  # Python runtimedependencies
 ├── requirements-dev.txt  # Development dependencies
 ├── requirements-build.txt  # Windows build dependencies
 ├── requirements-build.txt  # Windows build dependencies
+├── build.spec # PyInstaller Build specification
+├── windows.md # How to build Windows executables
 └── README.md        # This file
 ```
 
