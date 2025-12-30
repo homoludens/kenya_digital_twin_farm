@@ -2,6 +2,12 @@
 
 A PyQt5 desktop application for running WOFOST 8.1 crop simulations with nitrogen and water limitation for various locations in Kenya.
 
+
+# Screenshot
+
+![digital_twin_screenshot](digital_twin_screenshot.png) 
+
+
 ## Features
 
 ### Main Configuration
@@ -127,10 +133,19 @@ Weather data is automatically fetched from NASA POWER database.
 
 ```
 kenya_farm_twin/
-├── main.py           # Main application
-├── requirements.txt  # Python dependencies
+├── app
+|      └──  main.py           # Main application
+├── requirements.txt  # Python runtimedependencies
+├── requirements-dev.txt  # Development dependencies
+├── requirements-build.txt  # Windows build dependencies
+├── requirements-build.txt  # Windows build dependencies
 └── README.md        # This file
 ```
+
+
+# Windows builds
+
+Take a look at [windows.md](windows.md)
 
 ## Troubleshooting
 

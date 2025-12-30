@@ -3,8 +3,6 @@
 import pcse
 pcse_path = os.path.dirname(pcse.__file__)
 
-
-
 a = Analysis(
     ['main.py'],
     pathex=[],
@@ -31,5 +29,5 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    icon='agro.ico',  # Add 'app.ico' if you have an icon
+    icon='agro.ico',
 )
