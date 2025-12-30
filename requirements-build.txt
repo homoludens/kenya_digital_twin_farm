@@ -1,0 +1,20 @@
+# Kenya Digital Farm Twin - WOFOST Crop Simulator
+# Requirements file
+
+# GUI Framework
+PyQt5>=5.15.0
+
+# Data Processing
+numpy>=1.21.0
+pandas>=1.3.0
+
+# Visualization
+matplotlib>=3.5.0
+
+# WOFOST Crop Simulation
+pcse>=5.5.0
+
+# Optional: For enhanced map display
+folium>=0.14.0
+PyQtWebEngine>=5.15.0
+pyinstaller
